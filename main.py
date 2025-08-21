@@ -312,4 +312,3 @@ if st.session_state.zip_buffer:
         file_name="fichas_tecnicas_generadas.zip",
         mime="application/zip"
     )
-```
