@@ -50,22 +50,15 @@ def setup_model(api_key):
         st.error(f"Error al configurar la API de Google: {e}")
         return None
 
-# --- PROMPTS Y EJEMPLOS INTERNOS (FEW-SHOT PROMPTING) ---
+# --- PROMPTS INTERNOS ---
 
 PROMPT_ANALISIS = """
-Actúa como un experto en psicometría y pedagogía. Tu tarea es analizar un ítem de evaluación de opción múltiple.
+Actúa como un experto en psicometría y pedagogía. Tu misión es deconstruir un ítem de evaluación.
 
-Tu respuesta DEBE seguir estrictamente la siguiente estructura de encabezados:
-
-Ruta Cognitiva Correcta:
-[Describe el proceso mental paso a paso para llegar a la respuesta correcta ({AlternativaClave}). Sé claro, lógico y detalla cada etapa del razonamiento necesario, basándote en el contexto y el enunciado del ítem.]
-
-Análisis de Opciones No Válidas:
-[Para CADA UNA de las opciones incorrectas, explica por qué no es válida. Inicia cada explicación con "Opción A:", "Opción B:", etc. Identifica el tipo de error conceptual o procedimental que comete el estudiante al elegirla.]
-
---- DATOS DEL ÍTEM ---
+--- INSUMOS DEL ÍTEM ---
 - Grado: {ItemGradoId}
 - Competencia: {CompetenciaNombre}
+- Evidencia: {EvidenciaNombre}
 - Contexto: {ItemContexto}
 - Enunciado: {ItemEnunciado}
 - Opción A: {OpcionA}
@@ -73,17 +66,38 @@ Análisis de Opciones No Válidas:
 - Opción C: {OpcionC}
 - Opción D: {OpcionD}
 - Respuesta Clave: {AlternativaClave}
+
+--- INSTRUCCIONES ---
+
+FASE 1: RUTA COGNITIVA
+Describe, en un párrafo continuo y de forma impersonal, el procedimiento mental que un estudiante debe ejecutar para llegar a la respuesta correcta.
+1.  Genera la Ruta Cognitiva: Describe el paso a paso mental y lógico que un estudiante debe seguir para llegar a la respuesta correcta. Usa verbos que representen procesos cognitivos.
+2.  Auto-Verificación: Revisa que la ruta se alinee con la Competencia ('{CompetenciaNombre}') y la Evidencia ('{EvidenciaNombre}').
+3.  Justificación Final: El último paso debe justificar la elección de la respuesta correcta.
+
+FASE 2: ANÁLISIS DE OPCIONES NO VÁLIDAS
+- Para cada opción incorrecta, identifica la naturaleza del error y explica el razonamiento fallido.
+- Luego, explica el posible razonamiento que lleva al estudiante a cometer ese error.
+- Finalmente, clarifica por qué esa opción es incorrecta en el contexto de la tarea evaluativa.
+
+--- FORMATO DE SALIDA (REGLA CRÍTICA)---
+Responde únicamente con los dos títulos siguientes, en este orden y sin añadir texto adicional.
+
+Ruta Cognitiva Correcta:
+[Párrafo continuo y detallado. Ejemplo: Para resolver correctamente este ítem, el estudiante primero debe [verbo cognitivo 1]... Luego, necesita [verbo cognitivo 2]... Este proceso le permite [verbo cognitivo 3]..., lo que finalmente lo lleva a concluir que la opción {AlternativaClave} es la correcta porque [justificación final].]
+
+Análisis de Opciones No Válidas:
+- **Opción [Letra del distractor]:** El estudiante podría escoger esta opción si comete un error de [naturaleza de la confusión u error], lo que lo lleva a pensar que [razonamiento erróneo]. Sin embargo, esto es incorrecto porque [razón clara y concisa].
 """
 
 PROMPT_SINTESIS = """
-Actúa como un experto en evaluación que sintetiza análisis complejos en una sola frase concisa. Basándote exclusivamente en el siguiente ANÁLISIS DE LA RUTA COGNITIVA, redacta una única frase (máximo 2 renglones) que resuma la habilidad principal que se está evaluando.
-
+Actúa como un experto en evaluación. Basado en la siguiente Ruta Cognitiva, redacta una única frase (máximo 2 renglones) que resuma la habilidad principal que se está evaluando.
 Reglas:
-1. La frase debe comenzar obligatoriamente con "Este ítem evalúa la capacidad del estudiante para...".
-2. La frase debe describir procesos cognitivos genéricos, sin mencionar elementos específicos del texto o del ítem.
-3. Utiliza la taxonomía de referencia para asegurar que el lenguaje sea preciso.
+1. Comienza obligatoriamente con "Este ítem evalúa la capacidad del estudiante para...".
+2. Describe procesos cognitivos genéricos, no menciones detalles específicos del ítem.
+3. Usa la taxonomía de referencia para que el lenguaje sea preciso.
 
-ANÁLISIS DE LA RUTA COGNITIVA:
+RUTA COGNITIVA:
 ---
 {ruta_cognitiva_texto}
 ---
@@ -92,51 +106,39 @@ TAXONOMÍA DE REFERENCIA:
 - Competencia: {CompetenciaNombre}
 - Evidencia de Aprendizaje: {EvidenciaNombre}
 
-FORMATO DE SALIDA:
-Responde únicamente con la frase solicitada.
+RESPUESTA:
 """
 
 PROMPT_RECOMENDACIONES = """
-Actúa como un diseñador instruccional experto. Basado en la información del ítem, genera dos recomendaciones pedagógicas.
+Actúa como un diseñador instruccional experto. Basado en la información del ítem, genera tres recomendaciones distintas.
 
-Tu respuesta DEBE seguir estrictamente la siguiente estructura de encabezados:
+--- FORMATO DE SALIDA (REGLA CRÍTICA) ---
+Usa obligatoriamente la siguiente estructura de encabezados.
 
 RECOMENDACIÓN PARA FORTALECER
-[Describe una actividad o estrategia de aprendizaje para un estudiante que respondió incorrectamente. Sé creativo y evita ejercicios típicos.]
+[Describe una actividad de aprendizaje creativa y no tradicional para un estudiante que respondió incorrectamente, enfocada en remediar los errores conceptuales.]
 
 RECOMENDACIÓN PARA AVANZAR
-[Describe una actividad de profundización o un desafío para un estudiante que respondió correctamente.]
+[Describe una actividad de profundización o un desafío para un estudiante que respondió correctamente, para llevar su habilidad al siguiente nivel.]
 
---- INFORMACIÓN DEL ÍTEM Y ANÁLISiS ---
+OPORTUNIDAD DE MEJORA
+[Actúa como un tutor dirigiéndote al estudiante. Proporciona un consejo práctico y directo (máximo dos párrafos) enfocado en el error más común revelado en el análisis de distractores. No uses introducciones formales como "Se recomienda que...". Sé accionable.]
+
+--- INFORMACIÓN DEL ÍTEM Y ANÁLISIS ---
 - Qué Evalúa: {que_evalua_sintetizado}
 - Análisis completo: {analisis_central_generado}
 - Competencia: {CompetenciaNombre}
 - Grado: {ItemGradoId}
 """
 
-PROMPT_PARAFRASEO = """
-Actúa como un redactor pedagógico conciso. Convierte la siguiente recomendación en una "Oportunidad de Mejora".
-La "Oportunidad de Mejora" debe ser una sugerencia práctica y directa (máximo dos frases) que el estudiante puede aplicar de inmediato.
-NO uses frases introductorias como "Se recomienda que..." o "Para mejorar...". Sé directo y accionable.
-
-Recomendación original:
-"{recomendacion_fortalecer}"
-
-Oportunidad de Mejora:
-"""
-
 # --- FUNCIÓN PARA CONSTRUIR PROMPTS ---
 def construir_prompt(fila, plantilla, **kwargs):
     fila = fila.fillna('')
-    campos = {
-        'ItemContexto': fila.get('ItemContexto', ''), 'ItemEnunciado': fila.get('ItemEnunciado', ''),
-        'ComponenteNombre': fila.get('ComponenteNombre', ''), 'CompetenciaNombre': fila.get('CompetenciaNombre', ''),
-        'AfirmacionNombre': fila.get('AfirmacionNombre', ''), 'EvidenciaNombre': fila.get('EvidenciaNombre', ''),
-        'Tipologia Textual': fila.get('Tipologia Textual', ''), 'ItemGradoId': fila.get('ItemGradoId', ''),
-        'Analisis_Errores': fila.get('Analisis_Errores', ''), 'AlternativaClave': fila.get('AlternativaClave', ''),
-        'OpcionA': fila.get('OpcionA', ''), 'OpcionB': fila.get('OpcionB', ''),
-        'OpcionC': fila.get('OpcionC', ''), 'OpcionD': fila.get('OpcionD', '')
-    }
+    campos = {k: fila.get(k, '') for k in [
+        'ItemContexto', 'ItemEnunciado', 'ComponenteNombre', 'CompetenciaNombre',
+        'AfirmacionNombre', 'EvidenciaNombre', 'Tipologia Textual', 'ItemGradoId',
+        'Analisis_Errores', 'AlternativaClave', 'OpcionA', 'OpcionB', 'OpcionC', 'OpcionD'
+    ]}
     campos.update(kwargs)
     return plantilla.format(**campos)
 
@@ -182,11 +184,11 @@ if st.button("🤖 Iniciar Análisis y Generación", disabled=(not api_key or no
             with st.container(border=True):
                 try:
                     # --- PASO 1: ANÁLISIS CENTRAL ---
-                    st.write(f"**Paso 1/4:** Realizando análisis central...")
+                    st.write(f"**Paso 1/3:** Realizando análisis central...")
                     prompt_paso1 = construir_prompt(fila, PROMPT_ANALISIS)
                     response_paso1 = model.generate_content(prompt_paso1)
                     analisis_central = response_paso1.text.strip()
-                    time.sleep(1) # Pequeña pausa para no saturar la API
+                    time.sleep(1.5)
 
                     header_correcta = "Ruta Cognitiva Correcta:"
                     header_distractores = "Análisis de Opciones No Válidas:"
@@ -206,7 +208,8 @@ if st.button("🤖 Iniciar Análisis y Generación", disabled=(not api_key or no
                             if opt == clave_correcta:
                                 df.loc[i, f"Justificacion_{opt}"] = ruta_cognitiva
                             else:
-                                pattern = re.compile(rf"Opción\s*{opt}:\s*(.*?)(?=\s*Opción\s*[A-D]:|$)", re.DOTALL | re.IGNORECASE)
+                                # Lógica de separación mejorada
+                                pattern = re.compile(rf"-\s*\*\*\s*Opción\s*{opt}:\s*\*\*(.*?)(?=-\s*\*\*Opción|\Z)", re.DOTALL | re.IGNORECASE)
                                 match = pattern.search(analisis_distractores_bloque)
                                 df.loc[i, f"Justificacion_{opt}"] = match.group(1).strip() if match else "Análisis del distractor no encontrado."
                     else:
@@ -214,38 +217,26 @@ if st.button("🤖 Iniciar Análisis y Generación", disabled=(not api_key or no
                         df.loc[i, "Analisis_Distractores"] = "Error al parsear distractores"
 
                     # --- PASO 2: SÍNTESIS DEL "QUÉ EVALÚA" ---
-                    st.write(f"**Paso 2/4:** Sintetizando 'Qué Evalúa'...")
+                    st.write(f"**Paso 2/3:** Sintetizando 'Qué Evalúa'...")
                     prompt_paso2 = construir_prompt(fila, PROMPT_SINTESIS, ruta_cognitiva_texto=df.loc[i, "Justificacion_Correcta"])
                     response_paso2 = model.generate_content(prompt_paso2)
                     df.loc[i, "Que_Evalua"] = response_paso2.text.strip()
-                    time.sleep(1)
+                    time.sleep(1.5)
                     
-                    # --- PASO 3: GENERACIÓN DE RECOMENDACIONES ---
-                    st.write(f"**Paso 3/4:** Generando recomendaciones...")
+                    # --- PASO 3: GENERACIÓN DE RECOMENDACIONES (3 en 1) ---
+                    st.write(f"**Paso 3/3:** Generando recomendaciones pedagógicas...")
                     prompt_paso3 = construir_prompt(fila, PROMPT_RECOMENDACIONES, que_evalua_sintetizado=df.loc[i, "Que_Evalua"], analisis_central_generado=analisis_central)
                     response_paso3 = model.generate_content(prompt_paso3)
                     recomendaciones = response_paso3.text.strip()
                     
-                    idx_avanzar = recomendaciones.upper().find("RECOMENDACIÓN PARA AVANZAR")
-                    if idx_avanzar != -1:
-                        fortalecer = recomendaciones[:idx_avanzar].replace("RECOMENDACIÓN PARA FORTALECER", "").strip()
-                        avanzar = recomendaciones[idx_avanzar:].replace("RECOMENDACIÓN PARA AVANZAR", "").strip()
-                    else:
-                        fortalecer = recomendaciones.replace("RECOMENDACIÓN PARA FORTALECER", "").strip()
-                        avanzar = "No generada"
-                    
-                    df.loc[i, "Recomendacion_Fortalecer"] = fortalecer
-                    df.loc[i, "Recomendacion_Avanzar"] = avanzar
+                    # Lógica para separar las 3 recomendaciones
+                    fortalecer_match = re.search(r'RECOMENDACIÓN PARA FORTALECER(.*?)RECOMENDACIÓN PARA AVANZAR', recomendaciones, re.DOTALL | re.IGNORECASE)
+                    avanzar_match = re.search(r'RECOMENDACIÓN PARA AVANZAR(.*?)OPORTUNIDAD DE MEJORA', recomendaciones, re.DOTALL | re.IGNORECASE)
+                    oportunidad_match = re.search(r'OPORTUNIDAD DE MEJORA(.*?)$', recomendaciones, re.DOTALL | re.IGNORECASE)
 
-                    # --- PASO 4: PARAFRASEO PARA OPORTUNIDAD DE MEJORA ---
-                    if fortalecer and fortalecer.strip() and fortalecer != "No generada":
-                        st.write(f"**Paso 4/4:** Creando oportunidad de mejora...")
-                        prompt_parafraseo = PROMPT_PARAFRASEO.format(recomendacion_fortalecer=fortalecer)
-                        response_parafraseo = model.generate_content(prompt_parafraseo)
-                        df.loc[i, "oportunidad_de_mejora"] = response_parafraseo.text.strip()
-                        time.sleep(1)
-                    else:
-                        df.loc[i, "oportunidad_de_mejora"] = "No se generó recomendación para fortalecer."
+                    df.loc[i, "Recomendacion_Fortalecer"] = fortalecer_match.group(1).strip() if fortalecer_match else "No generada."
+                    df.loc[i, "Recomendacion_Avanzar"] = avanzar_match.group(1).strip() if avanzar_match else "No generada."
+                    df.loc[i, "oportunidad_de_mejora"] = oportunidad_match.group(1).strip() if oportunidad_match else "No generada."
 
                     st.success(f"Ítem {item_id} procesado con éxito.")
 
