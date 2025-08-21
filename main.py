@@ -1,8 +1,3 @@
-Claro que sí. Aquí tienes el código completo y final con todos los ajustes que solicitaste.
-
-Este código ya no depende de archivos externos para los *prompts* y aplica la lógica para separar las justificaciones y parafrasear la recomendación. Solo necesitas copiar, pegar y ejecutar.
-
-```python
 # -*- coding: utf-8 -*-
 
 import streamlit as st
