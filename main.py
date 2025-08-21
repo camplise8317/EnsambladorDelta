@@ -122,7 +122,7 @@ RECOMENDACIÓN PARA AVANZAR
 [Describe una actividad de profundización o un desafío para un estudiante que respondió correctamente, para llevar su habilidad al siguiente nivel.]
 
 OPORTUNIDAD DE MEJORA
-[Actúa como un tutor dirigiéndote al estudiante. Proporciona un consejo práctico y directo (máximo dos párrafos) enfocado en el error más común revelado en el análisis de distractores. No uses introducciones formales como "Se recomienda que...". Sé accionable.]
+[Proporciona un consejo práctico y directo basado en el apartado RECOMENDACIÓN PARA FORTALECER . Usa redacción como "Se recomienda que...". Usa lenguaje impersonal]
 
 --- INFORMACIÓN DEL ÍTEM Y ANÁLISIS ---
 - Qué Evalúa: {que_evalua_sintetizado}
