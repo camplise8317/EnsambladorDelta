@@ -1,3 +1,8 @@
+Claro que sí. Aquí tienes el código completo y final con todos los ajustes que solicitaste.
+
+Este código ya no depende de archivos externos para los *prompts* y aplica la lógica para separar las justificaciones y parafrasear la recomendación. Solo necesitas copiar, pegar y ejecutar.
+
+```python
 # -*- coding: utf-8 -*-
 
 import streamlit as st
@@ -50,16 +55,15 @@ def setup_model(api_key):
         st.error(f"Error al configurar la API de Google: {e}")
         return None
 
-# --- PROMPTS Y EJEMPLOS INTERNOS (FEW-SHOT PROMPTING) ---
-# Ya no se leen de archivos externos
+# --- PROMPTS Y EJEMPLOS INTERNOS ---
 
 PROMPT_ANALISIS = """
 Actúa como un experto en psicometría y pedagogía. Tu tarea es analizar un ítem de evaluación de opción múltiple.
 
-Tu respuesta DEBE seguir estrictamente la siguiente estructura de encabezados, sin añadir texto adicional fuera de ellos:
+Tu respuesta DEBE seguir estrictamente la siguiente estructura de encabezados:
 
 Ruta Cognitiva Correcta:
-[Describe el proceso mental paso a paso que un estudiante debe seguir para llegar a la respuesta correcta ({AlternativaClave}). Sé claro, lógico y detalla cada etapa del razonamiento necesario, basándote en el contexto y el enunciado del ítem.]
+[Describe el proceso mental paso a paso para llegar a la respuesta correcta ({AlternativaClave}). Sé claro, lógico y detalla cada etapa del razonamiento necesario, basándote en el contexto y el enunciado del ítem.]
 
 Análisis de Opciones No Válidas:
 [Para CADA UNA de las opciones incorrectas, explica por qué no es válida. Inicia cada explicación con "Opción A:", "Opción B:", etc. Identifica el tipo de error conceptual o procedimental que comete el estudiante al elegirla.]
@@ -98,15 +102,17 @@ Responde únicamente con la frase solicitada.
 """
 
 PROMPT_RECOMENDACIONES = """
-Actúa como un diseñador instruccional experto, especializado en crear actividades de lectura novedosas. Basado en la información del ítem, genera dos recomendaciones.
+Actúa como un diseñador instruccional experto. Basado en la información del ítem, genera dos recomendaciones pedagógicas.
+
+Tu respuesta DEBE seguir estrictamente la siguiente estructura de encabezados:
 
 RECOMENDACIÓN PARA FORTALECER
-Describe una actividad o estrategia de aprendizaje para un estudiante que respondió incorrectamente. La recomendación debe enfocarse en remediar los errores conceptuales identificados en el análisis de los distractores. Sé creativo y evita ejercicios típicos.
+[Describe una actividad o estrategia de aprendizaje para un estudiante que respondió incorrectamente. Sé creativo y evita ejercicios típicos.]
 
 RECOMENDACIÓN PARA AVANZAR
-Describe una actividad de profundización o un desafío para un estudiante que respondió correctamente. El objetivo es llevar su habilidad al siguiente nivel, conectándola con temas más complejos o aplicaciones prácticas.
+[Describe una actividad de profundización o un desafío para un estudiante que respondió correctamente.]
 
---- INFORMACIÓN DEL ÍTEM Y ANÁLISIS ---
+--- INFORMACIÓN DEL ÍTEM Y ANÁLISiS ---
 {analisis_central_generado}
 - Qué Evalúa: {que_evalua_sintetizado}
 - Competencia: {CompetenciaNombre}
@@ -125,10 +131,8 @@ Oportunidad de Mejora:
 """
 
 # --- FUNCIONES PARA CONSTRUIR PROMPTS ---
-def construir_prompt(fila, plantilla):
+def construir_prompt(fila, plantilla, **kwargs):
     fila = fila.fillna('')
-    # Usamos un diccionario con todos los posibles campos
-    # para evitar errores si una columna no existe.
     campos = {
         'ItemContexto': fila.get('ItemContexto', ''), 'ItemEnunciado': fila.get('ItemEnunciado', ''),
         'ComponenteNombre': fila.get('ComponenteNombre', ''), 'CompetenciaNombre': fila.get('CompetenciaNombre', ''),
@@ -138,6 +142,8 @@ def construir_prompt(fila, plantilla):
         'OpcionA': fila.get('OpcionA', ''), 'OpcionB': fila.get('OpcionB', ''),
         'OpcionC': fila.get('OpcionC', ''), 'OpcionD': fila.get('OpcionD', '')
     }
+    # Añadir argumentos adicionales como el análisis_central o la recomendación
+    campos.update(kwargs)
     return plantilla.format(**campos)
 
 # --- INTERFAZ PRINCIPAL DE STREAMLIT ---
@@ -195,31 +201,37 @@ if st.button("🤖 Iniciar Análisis y Generación", disabled=(not api_key or no
                     if idx_distractores != -1:
                         ruta_cognitiva = analisis_central[len(header_correcta):idx_distractores].strip()
                         analisis_distractores_bloque = analisis_central[idx_distractores + len(header_distractores):].strip()
+                        
                         df.loc[i, "Justificacion_Correcta"] = ruta_cognitiva
                         df.loc[i, "Analisis_Distractores"] = analisis_distractores_bloque
 
                         clave_correcta = str(fila.get('AlternativaClave', '')).strip().upper()
                         opciones = ['A', 'B', 'C', 'D']
+                        
                         for opt in opciones:
-                            if opt != clave_correcta:
-                                pattern = re.compile(rf"Opción\s*{opt}:\s*(.*?)(?=\s*-\s*Opción\s*[A-D]:|$)", re.DOTALL | re.IGNORECASE)
+                            if opt == clave_correcta:
+                                df.loc[i, f"Justificacion_{opt}"] = ruta_cognitiva
+                            else:
+                                pattern = re.compile(rf"Opción\s*{opt}:\s*(.*?)(?=\s*Opción\s*[A-D]:|$)", re.DOTALL | re.IGNORECASE)
                                 match = pattern.search(analisis_distractores_bloque)
                                 if match:
                                     df.loc[i, f"Justificacion_{opt}"] = match.group(1).strip()
+                                else:
+                                    df.loc[i, f"Justificacion_{opt}"] = "Análisis del distractor no encontrado."
                     else:
                         df.loc[i, "Justificacion_Correcta"] = analisis_central
                         df.loc[i, "Analisis_Distractores"] = "Error al parsear distractores"
 
                     # --- PASO 2: SÍNTESIS DEL "QUÉ EVALÚA" ---
                     st.write(f"**Paso 2/4:** Sintetizando 'Qué Evalúa'...")
-                    prompt_paso2 = construir_prompt_paso2_sintesis_que_evalua(analisis_central, fila)
+                    prompt_paso2 = construir_prompt(fila, PROMPT_SINTESIS, ruta_cognitiva_texto=df.loc[i, "Justificacion_Correcta"])
                     response_paso2 = model.generate_content(prompt_paso2)
                     df.loc[i, "Que_Evalua"] = response_paso2.text.strip()
                     time.sleep(1)
                     
                     # --- PASO 3: GENERACIÓN DE RECOMENDACIONES ---
                     st.write(f"**Paso 3/4:** Generando recomendaciones...")
-                    prompt_paso3 = construir_prompt_paso3_recomendaciones(df.loc[i, "Que_Evalua"], analisis_central, fila)
+                    prompt_paso3 = construir_prompt(fila, PROMPT_RECOMENDACIONES, que_evalua_sintetizado=df.loc[i, "Que_Evalua"], analisis_central_generado=analisis_central)
                     response_paso3 = model.generate_content(prompt_paso3)
                     recomendaciones = response_paso3.text.strip()
                     
@@ -235,7 +247,7 @@ if st.button("🤖 Iniciar Análisis y Generación", disabled=(not api_key or no
                     df.loc[i, "Recomendacion_Avanzar"] = avanzar
 
                     # --- PASO 4: PARAFRASEO PARA OPORTUNIDAD DE MEJORA ---
-                    if fortalecer != "No generada" and fortalecer.strip() != "":
+                    if fortalecer and fortalecer != "No generada":
                         st.write(f"**Paso 4/4:** Creando oportunidad de mejora...")
                         prompt_parafraseo = PROMPT_PARAFRASEO.format(recomendacion_fortalecer=fortalecer)
                         response_parafraseo = model.generate_content(prompt_parafraseo)
@@ -283,7 +295,7 @@ if st.session_state.df_enriquecido is not None and archivo_plantilla is not None
                     total_docs = len(df_final)
                     progress_bar_zip = st.progress(0, text="Iniciando ensamblaje...")
                     for i, fila in df_final.iterrows():
-                        plantilla_bytes.seek(0) # Reiniciar el buffer de la plantilla para cada documento
+                        plantilla_bytes.seek(0)
                         doc = DocxTemplate(plantilla_bytes)
                         contexto = fila.to_dict()
                         contexto_limpio = {k: (v if pd.notna(v) else "") for k, v in contexto.items()}
@@ -305,3 +317,4 @@ if st.session_state.zip_buffer:
         file_name="fichas_tecnicas_generadas.zip",
         mime="application/zip"
     )
+```
