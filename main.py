@@ -50,7 +50,7 @@ def setup_model(api_key):
         st.error(f"Error al configurar la API de Google: {e}")
         return None
 
-# --- PROMPTS Y EJEMPLOS INTERNOS ---
+# --- PROMPTS Y EJEMPLOS INTERNOS (FEW-SHOT PROMPTING) ---
 
 PROMPT_ANALISIS = """
 Actúa como un experto en psicometría y pedagogía. Tu tarea es analizar un ítem de evaluación de opción múltiple.
@@ -108,8 +108,8 @@ RECOMENDACIÓN PARA AVANZAR
 [Describe una actividad de profundización o un desafío para un estudiante que respondió correctamente.]
 
 --- INFORMACIÓN DEL ÍTEM Y ANÁLISiS ---
-{analisis_central_generado}
 - Qué Evalúa: {que_evalua_sintetizado}
+- Análisis completo: {analisis_central_generado}
 - Competencia: {CompetenciaNombre}
 - Grado: {ItemGradoId}
 """
@@ -125,7 +125,7 @@ Recomendación original:
 Oportunidad de Mejora:
 """
 
-# --- FUNCIONES PARA CONSTRUIR PROMPTS ---
+# --- FUNCIÓN PARA CONSTRUIR PROMPTS ---
 def construir_prompt(fila, plantilla, **kwargs):
     fila = fila.fillna('')
     campos = {
@@ -137,7 +137,6 @@ def construir_prompt(fila, plantilla, **kwargs):
         'OpcionA': fila.get('OpcionA', ''), 'OpcionB': fila.get('OpcionB', ''),
         'OpcionC': fila.get('OpcionC', ''), 'OpcionD': fila.get('OpcionD', '')
     }
-    # Añadir argumentos adicionales como el análisis_central o la recomendación
     campos.update(kwargs)
     return plantilla.format(**campos)
 
@@ -187,7 +186,7 @@ if st.button("🤖 Iniciar Análisis y Generación", disabled=(not api_key or no
                     prompt_paso1 = construir_prompt(fila, PROMPT_ANALISIS)
                     response_paso1 = model.generate_content(prompt_paso1)
                     analisis_central = response_paso1.text.strip()
-                    time.sleep(1)
+                    time.sleep(1) # Pequeña pausa para no saturar la API
 
                     header_correcta = "Ruta Cognitiva Correcta:"
                     header_distractores = "Análisis de Opciones No Válidas:"
@@ -209,10 +208,7 @@ if st.button("🤖 Iniciar Análisis y Generación", disabled=(not api_key or no
                             else:
                                 pattern = re.compile(rf"Opción\s*{opt}:\s*(.*?)(?=\s*Opción\s*[A-D]:|$)", re.DOTALL | re.IGNORECASE)
                                 match = pattern.search(analisis_distractores_bloque)
-                                if match:
-                                    df.loc[i, f"Justificacion_{opt}"] = match.group(1).strip()
-                                else:
-                                    df.loc[i, f"Justificacion_{opt}"] = "Análisis del distractor no encontrado."
+                                df.loc[i, f"Justificacion_{opt}"] = match.group(1).strip() if match else "Análisis del distractor no encontrado."
                     else:
                         df.loc[i, "Justificacion_Correcta"] = analisis_central
                         df.loc[i, "Analisis_Distractores"] = "Error al parsear distractores"
@@ -242,11 +238,12 @@ if st.button("🤖 Iniciar Análisis y Generación", disabled=(not api_key or no
                     df.loc[i, "Recomendacion_Avanzar"] = avanzar
 
                     # --- PASO 4: PARAFRASEO PARA OPORTUNIDAD DE MEJORA ---
-                    if fortalecer and fortalecer != "No generada":
+                    if fortalecer and fortalecer.strip() and fortalecer != "No generada":
                         st.write(f"**Paso 4/4:** Creando oportunidad de mejora...")
                         prompt_parafraseo = PROMPT_PARAFRASEO.format(recomendacion_fortalecer=fortalecer)
                         response_parafraseo = model.generate_content(prompt_parafraseo)
                         df.loc[i, "oportunidad_de_mejora"] = response_parafraseo.text.strip()
+                        time.sleep(1)
                     else:
                         df.loc[i, "oportunidad_de_mejora"] = "No se generó recomendación para fortalecer."
 
@@ -297,6 +294,7 @@ if st.session_state.df_enriquecido is not None and archivo_plantilla is not None
                         doc.render(contexto_limpio)
                         doc_buffer = BytesIO()
                         doc.save(doc_buffer)
+                        doc_buffer.seek(0)
                         nombre_base = str(fila.get(columna_nombre_archivo, f"ficha_{i+1}")).replace('/', '_').replace('\\', '_')
                         zip_file.writestr(f"{nombre_base}.docx", doc_buffer.getvalue())
                         progress_bar_zip.progress((i + 1) / total_docs, text=f"Añadiendo ficha {i+1}/{total_docs} al .zip")
